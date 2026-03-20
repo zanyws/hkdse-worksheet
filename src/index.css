@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --teacher-red: #dc2626;
+  --paper-margin: 2cm;
+  --font-serif: "Noto Serif TC", "SimSun", serif;
+  --font-sans: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --ink-primary: #221e14;
+  --ink-secondary: #524830;
+  --gold-accent: #d97706;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: var(--font-sans);
+  background: #f8f6f0;
+  color: var(--ink-primary);
+  min-height: 100vh;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #ede8d8; }
+::-webkit-scrollbar-thumb { background: #a99872; border-radius: 3px; }
+
+/* Teacher answer spans */
+.teacher-answer {
+  color: var(--teacher-red);
+  font-weight: bold;
+}
+
+/* Paper styles for worksheets */
+.paper-page {
+  background: white;
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  padding: 2cm;
+  box-shadow: 0 4px 24px rgba(34,30,20,0.12);
+}
+
+.paper-header {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #221e14;
+}
+
+.paper-header h1 {
+  font-family: var(--font-serif);
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.2em;
+}
+
+.paper-header .student-info {
+  font-size: 0.95rem;
+  letter-spacing: 0.3em;
+}
+
+/* Translation two-column layout */
+.translation-grid {
+  display: grid;
+  grid-template-columns: 40% 60%;
+  gap: 0;
+  border: 1px solid #d9d0b8;
+}
+
+.translation-original {
+  padding: 1rem;
+  border-right: 1px solid #d9d0b8;
+  font-family: var(--font-serif);
+  line-height: 2;
+}
+
+.translation-modern {
+  padding: 1rem;
+  line-height: 2;
+}
+
+/* Fill-in blanks */
+.fill-blank {
+  display: inline-block;
+  min-width: 80px;
+  border-bottom: 1.5px solid #3a3222;
+  margin: 0 4px;
+}
+
+/* Technique tips box */
+.tips-box {
+  background: #fffbeb;
+  border-left: 4px solid #f59e0b;
+  padding: 1rem 1.25rem;
+  border-radius: 0 8px 8px 0;
+  margin: 1rem 0;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #ede8d8 25%, #f8f6f0 50%, #ede8d8 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+/* Print styles */
+@media print {
+  body { margin: 0; background: white; }
+  .no-print { display: none !important; }
+  .page-break { page-break-after: always; }
+  .paper-page { box-shadow: none; margin: 0; }
+}
+
+/* Ink brush decorative element */
+.brush-divider {
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #d97706 20%, #8a7a52 50%, #d97706 80%, transparent);
+  margin: 1.5rem 0;
+  border-radius: 2px;
+}
