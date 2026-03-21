@@ -1,88 +1,99 @@
 /**
- * Frontend PDF text extraction
- * Uses PDF.js via CDN script injection to avoid version mismatch
+ * PDF/Image text extraction
+ * Strategy:
+ * 1. PDF → convert to base64, send to Gemini Vision API for OCR
+ * 2. Image → convert to base64, send to Gemini Vision API for OCR
+ * 3. TXT → read directly
+ * No external dependencies required
  */
 
-// PDF.js CDN version - main lib and worker must match exactly
-const PDFJS_VERSION = '4.4.168'
-const PDFJS_CDN = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`
+export async function extractTextFromPDF(file, aiConfig) {
+  // Convert PDF to base64
+  const base64 = await fileToBase64(file)
+  const base64Data = base64.split(',')[1]
 
-let pdfjsLoaded = false
+  if (!aiConfig?.apiKey) {
+    throw new Error('請先設定 API Key 才能提取 PDF 內容')
+  }
 
-async function loadPdfjs() {
-  if (pdfjsLoaded && window.pdfjsLib) return window.pdfjsLib
+  // Use Gemini Vision to read PDF
+  if (aiConfig.provider === 'gemini' || !aiConfig.provider) {
+    return await geminiOCR(base64Data, 'application/pdf', aiConfig)
+  }
 
-  return new Promise((resolve, reject) => {
-    // Load main script
-    const script = document.createElement('script')
-    script.src = `${PDFJS_CDN}/pdf.min.js`
-    script.onload = () => {
-      if (window.pdfjsLib) {
-        // Set worker to matching version from same CDN
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-          `${PDFJS_CDN}/pdf.worker.min.js`
-        pdfjsLoaded = true
-        resolve(window.pdfjsLib)
-      } else {
-        reject(new Error('PDF.js 載入失敗'))
-      }
-    }
-    script.onerror = () => reject(new Error('無法載入 PDF.js，請檢查網絡連接'))
-    document.head.appendChild(script)
-  })
+  // For non-Gemini providers, we can't do PDF OCR directly
+  throw new Error('PDF 自動提取只支援 Gemini 模型，請手動貼上原文')
 }
 
-export async function extractTextFromPDF(file) {
-  const pdfjs = await loadPdfjs()
+export async function extractTextFromImage(file, aiConfig) {
+  const base64 = await fileToBase64(file)
+  const base64Data = base64.split(',')[1]
+  const mimeType = file.type
 
-  // Read file as ArrayBuffer
-  const arrayBuffer = await new Promise((resolve, reject) => {
+  if (!aiConfig?.apiKey) {
+    throw new Error('請先設定 API Key 才能識別圖片')
+  }
+
+  if (aiConfig.provider === 'gemini' || !aiConfig.provider) {
+    return await geminiOCR(base64Data, mimeType, aiConfig)
+  }
+
+  throw new Error('圖片識別只支援 Gemini 模型，請手動貼上原文')
+}
+
+async function geminiOCR(base64Data, mimeType, aiConfig) {
+  const base = aiConfig.baseUrl || 'https://generativelanguage.googleapis.com'
+  const url = `${base}/v1beta/models/${aiConfig.model}:generateContent?key=${aiConfig.apiKey}`
+
+  const prompt = `請完整提取以下文件中的所有文字內容。
+要求：
+1. 保持原有段落分隔
+2. 只輸出文字內容，不加任何說明或標籤
+3. 繁體中文輸出
+4. 若有標題，保留標題
+5. 按原文順序輸出`
+
+  const body = {
+    contents: [{
+      parts: [
+        {
+          inline_data: {
+            mime_type: mimeType,
+            data: base64Data
+          }
+        },
+        { text: prompt }
+      ]
+    }],
+    generationConfig: {
+      maxOutputTokens: 8000,
+      temperature: 0.1
+    }
+  }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err?.error?.message || `API 錯誤 ${res.status}`)
+  }
+
+  const data = await res.json()
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+
+  if (!text) throw new Error('未能提取文字，請手動貼上原文')
+  return text.trim()
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = e => resolve(e.target.result)
     reader.onerror = () => reject(new Error('檔案讀取失敗'))
-    reader.readAsArrayBuffer(file)
-  })
-
-  // Load PDF document
-  const loadingTask = pdfjs.getDocument({ data: arrayBuffer })
-  const pdf = await loadingTask.promise
-
-  let fullText = ''
-  const numPages = pdf.numPages
-
-  for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum)
-    const textContent = await page.getTextContent()
-
-    let pageText = ''
-    let lastY = null
-
-    textContent.items.forEach(item => {
-      if ('str' in item && item.str.trim()) {
-        // New line when Y position changes
-        if (lastY !== null && Math.abs(item.transform[5] - lastY) > 5) {
-          pageText += '\n'
-        }
-        pageText += item.str
-        lastY = item.transform[5]
-      }
-    })
-
-    fullText += pageText.trim() + '\n\n'
-  }
-
-  return fullText
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
-export async function extractTextFromImage(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = e => resolve(e.target.result)
-    reader.onerror = () => reject(new Error('圖片讀取失敗'))
     reader.readAsDataURL(file)
   })
 }

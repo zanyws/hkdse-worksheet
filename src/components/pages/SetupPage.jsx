@@ -79,12 +79,16 @@ export default function SetupPage() {
 
     if (file.type === 'application/pdf') {
       updateText('ocrSource', 'pdf')
+      if (!aiConfig.apiKey) {
+        alert('請先設定 API Key，系統將使用 AI 識別 PDF 內容')
+        return
+      }
       try {
-        const text = await extractTextFromPDF(file)
+        const text = await extractTextFromPDF(file, aiConfig)
         if (text && text.length > 20) {
           updateText('content', text)
         } else {
-          alert('未能從PDF提取文字（可能是掃描版PDF）\n請手動貼上原文，或點擊「AI智能提取」讓AI協助識別。')
+          alert('未能從PDF提取文字\n請手動貼上原文。')
         }
       } catch (e) {
         alert('PDF讀取失敗：' + e.message + '\n請手動貼上原文。')
@@ -92,16 +96,22 @@ export default function SetupPage() {
       return
     }
 
-    // Image files: store as base64 for AI OCR via vision
+    // Image files: use Gemini Vision OCR
     if (file.type.startsWith('image/')) {
       updateText('ocrSource', 'image')
+      if (!aiConfig.apiKey) {
+        alert('請先設定 API Key，系統將使用 AI 識別圖片內容')
+        return
+      }
       try {
-        const base64 = await extractTextFromImage(file)
-        // Store base64 temporarily, use AI to extract text
-        updateText('_imageBase64', base64)
-        alert('圖片已上傳，請點擊「AI智能提取篇章信息」讓AI識別圖片內容。')
+        const text = await extractTextFromImage(file, aiConfig)
+        if (text && text.length > 20) {
+          updateText('content', text)
+        } else {
+          alert('未能識別圖片內容，請手動貼上原文。')
+        }
       } catch (e) {
-        alert('圖片讀取失敗，請手動貼上原文。')
+        alert('圖片識別失敗：' + e.message + '\n請手動貼上原文。')
       }
     }
   }
@@ -119,42 +129,7 @@ export default function SetupPage() {
     try {
       const EXTRACT_SYSTEM = '你是一位中文科老師，請從文章中提取基本信息。只輸出純JSON，所有值均為純文字，絕對不可加任何HTML標籤或teacher-answer標籤。'
 
-      // Build messages - support image OCR if image was uploaded
-      let result
-      if (textConfig._imageBase64) {
-        // Use vision API for image OCR
-        const imagePrompt = `請識別這張圖片中的文字，提取篇章基本信息。
-
-【重要】只輸出以下JSON，所有值必須是純文字：
-{
-  "title": "篇章題目",
-  "author": "作者姓名",
-  "dynasty": "朝代或時代",
-  "content": "完整原文（保持原有分段）",
-  "analysis": "篇章主要內容摘要（3至5句）"
-}`
-        // For Gemini vision, include image in prompt
-        if (aiConfig.provider === 'gemini') {
-          const base64Data = textConfig._imageBase64.split(',')[1]
-          const mimeType = textConfig._imageBase64.split(';')[0].split(':')[1]
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${aiConfig.model}:generateContent?key=${aiConfig.apiKey}`
-          const body = {
-            contents: [{
-              parts: [
-                { inline_data: { mime_type: mimeType, data: base64Data } },
-                { text: imagePrompt }
-              ]
-            }],
-            generationConfig: { maxOutputTokens: 4000, temperature: 0.3 }
-          }
-          const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-          const data2 = await res.json()
-          result = data2.candidates?.[0]?.content?.parts?.[0]?.text || ''
-        } else {
-          result = await callAI({ ...aiConfig, systemPrompt: EXTRACT_SYSTEM, userPrompt: imagePrompt })
-        }
-      } else {
-        const prompt = `請分析以下文章，提取篇章基本信息。
+      const prompt = `請分析以下文章，提取篇章基本信息。
 
 文章內容：
 ${textConfig.content || '（請先貼上原文）'}
@@ -167,8 +142,8 @@ ${textConfig.content || '（請先貼上原文）'}
   "content": "完整原文（純文字，保持原有分段，不加任何標籤）",
   "analysis": "篇章主要內容摘要（純文字，3至5句）"
 }`
-        result = await callAI({ ...aiConfig, systemPrompt: EXTRACT_SYSTEM, userPrompt: prompt })
-      }
+
+      const result = await callAI({ ...aiConfig, systemPrompt: EXTRACT_SYSTEM, userPrompt: prompt })
       const data = parseAIJson(result)
       
       Object.entries(data).forEach(([k, v]) => {
@@ -353,7 +328,7 @@ ${textConfig.content || '（請先貼上原文）'}
               >
                 <Upload size={20} className="mx-auto text-ink-400 mb-1" />
                 <p className="text-xs text-ink-500">
-                  {uploadedFile ? `✓ ${uploadedFile.name}` : '拖放 PDF / 圖片 / TXT，或點擊上傳'}
+                  {uploadedFile ? `✓ ${uploadedFile.name}` : '拖放 PDF / 圖片 / TXT，或點擊上傳（PDF 和圖片將由 AI 自動識別）（PDF 和圖片將由 AI 自動識別文字）'}
                 </p>
                 <input ref={fileRef} type="file" className="hidden" accept=".txt,.pdf,.png,.jpg,.jpeg"
                   onChange={e => e.target.files?.[0] && processFile(e.target.files[0])} />
