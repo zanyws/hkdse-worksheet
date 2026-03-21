@@ -1,86 +1,85 @@
 import React, { useState } from 'react'
-import { Download, FileText, Globe } from 'lucide-react'
-import { generatePDF } from '../../lib/pdf'
+import { Download, Globe, Printer } from 'lucide-react'
+import { downloadHTML, printPDF, printCurrentPage } from '../../lib/download'
 import { useApp } from '../../context/AppContext'
 
 export default function DownloadBar({ pageId, pageName }) {
   const { state } = useApp()
   const [loading, setLoading] = useState(null)
+  const filename = `${state.textConfig.title}_${pageName}`
 
-  async function handlePDF(isTeacher) {
-    const key = isTeacher ? 'pdfT' : 'pdfS'
+  async function handle(fn, key) {
     setLoading(key)
-    try {
-      await generatePDF(pageId, `${state.textConfig.title}_${pageName}`, isTeacher)
-    } catch (e) {
-      alert('PDF生成失敗：' + e.message)
-    } finally {
-      setLoading(null)
-    }
+    try { await fn() }
+    catch (e) { alert('下載失敗：' + e.message) }
+    finally { setLoading(null) }
   }
 
-  function handleHTML(isTeacher) {
-    const element = document.getElementById(pageId)
-    if (!element) return
-    
-    const teacherSpans = element.querySelectorAll('.teacher-answer')
-    if (!isTeacher) teacherSpans.forEach(s => s.style.display = 'none')
-    
-    const html = `<!DOCTYPE html>
-<html lang="zh-HK">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${state.textConfig.title} — ${pageName}</title>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
-<style>
-  body { font-family: "Noto Sans TC", sans-serif; margin: 2cm; background: white; color: #221e14; }
-  .paper-header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 1rem; margin-bottom: 1.5rem; }
-  .paper-header h1 { font-family: "Noto Serif TC", serif; font-size: 1.4rem; font-weight: 700; }
-  .teacher-answer { color: #dc2626; font-weight: bold; }
-  table { border-collapse: collapse; width: 100%; }
-  td, th { border: 1px solid #d9d0b8; padding: 8px 12px; }
-  .fill-blank { display: inline-block; min-width: 80px; border-bottom: 1.5px solid #3a3222; }
-</style>
-</head>
-<body>${element.outerHTML}</body>
-</html>`
-
-    if (!isTeacher) teacherSpans.forEach(s => s.style.display = '')
-    
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${state.textConfig.title}_${pageName}_${isTeacher ? '教師版' : '學生版'}.html`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const btn = (label, icon, onClick, loadKey, color = 'ink') => (
+  const Btn = ({ label, icon: Icon, onClick, loadKey, variant = 'default', title }) => (
     <button
-      onClick={onClick}
+      onClick={() => handle(onClick, loadKey)}
       disabled={loading !== null}
-      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all
-        ${color === 'red' 
-          ? 'bg-vermillion-50 text-vermillion-700 border border-vermillion-200 hover:bg-vermillion-100' 
-          : 'bg-ink-50 text-ink-700 border border-ink-200 hover:bg-ink-100'}
-        disabled:opacity-50 disabled:cursor-not-allowed`}
+      title={title}
+      className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all border
+        ${variant === 'red'
+          ? 'bg-vermillion-50 text-vermillion-700 border-vermillion-200 hover:bg-vermillion-100'
+          : variant === 'print'
+            ? 'bg-ink-900 text-white border-ink-900 hover:bg-ink-800'
+            : 'bg-white text-ink-700 border-ink-200 hover:bg-ink-50'}
+        disabled:opacity-40 disabled:cursor-not-allowed`}
     >
-      {loading === loadKey ? (
-        <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
-      ) : icon}
+      {loading === loadKey
+        ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+        : <Icon size={13} />}
       {label}
     </button>
   )
 
   return (
-    <div className="no-print flex flex-wrap gap-2 p-3 bg-ink-50 border border-ink-100 rounded-xl mb-4">
-      <span className="text-xs text-ink-500 self-center mr-1">📥 下載工作紙：</span>
-      {btn('PDF（學生版）', <Download size={14} />, () => handlePDF(false), 'pdfS')}
-      {btn('PDF（教師版）', <Download size={14} />, () => handlePDF(true), 'pdfT', 'red')}
-      {btn('HTML（學生版）', <Globe size={14} />, () => handleHTML(false), null)}
-      {btn('HTML（教師版）', <Globe size={14} />, () => handleHTML(true), null, 'red')}
+    <div className="no-print flex flex-wrap items-center gap-2 p-3 bg-ink-50 border border-ink-100 rounded-xl mb-4">
+      <span className="text-xs text-ink-500 mr-1">📥 下載工作紙：</span>
+
+      {/* Print buttons — uses browser print dialog, best quality */}
+      <Btn
+        label="列印／PDF（學生版）"
+        icon={Printer}
+        onClick={() => printCurrentPage(false)}
+        loadKey="printS"
+        variant="print"
+        title="使用瀏覽器列印對話框，選擇『另存為PDF』可獲最佳效果"
+      />
+      <Btn
+        label="列印／PDF（教師版）"
+        icon={Printer}
+        onClick={() => printCurrentPage(true)}
+        loadKey="printT"
+        variant="red"
+        title="教師版含紅色答案"
+      />
+
+      <div className="w-px h-5 bg-ink-200 mx-1" />
+
+      {/* HTML download — uses Tailwind CDN */}
+      <Btn
+        label="HTML（學生版）"
+        icon={Globe}
+        onClick={() => downloadHTML(pageId, filename, false)}
+        loadKey="htmlS"
+        title="下載HTML檔案，需要網絡連接才能正確顯示排版"
+      />
+      <Btn
+        label="HTML（教師版）"
+        icon={Globe}
+        onClick={() => downloadHTML(pageId, filename, true)}
+        loadKey="htmlT"
+        variant="red"
+        title="教師版HTML，含紅色答案"
+      />
+
+      {/* Print tip */}
+      <span className="text-xs text-ink-400 ml-auto hidden lg:block">
+        💡 列印按鈕排版最佳，選「另存為PDF」即可
+      </span>
     </div>
   )
 }

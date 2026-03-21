@@ -2,47 +2,39 @@ import React, { useState } from 'react'
 import { useApp } from '../../context/AppContext'
 import { callAI } from '../../lib/api'
 import { SYSTEM_PROMPT, buildAuthorPrompt } from '../../lib/prompts'
+import { parseAIJson } from '../../lib/parseJSON'
 import PaperHeader from '../ui/PaperHeader'
 import DownloadBar from '../ui/DownloadBar'
 import GenerateButton from '../ui/GenerateButton'
 import LoadingSkeleton from '../ui/LoadingSkeleton'
-import { User, Clock, BookOpen, Brain, AlertTriangle } from 'lucide-react'
+import { User, AlertTriangle, Eye, EyeOff } from 'lucide-react'
 
-function TeacherHTML({ html }) {
+function HTML({ html }) {
+  if (!html) return null
   return <span dangerouslySetInnerHTML={{ __html: html }} />
-}
-
-function FillBlank({ answer }) {
-  return (
-    <span className="inline-block border-b border-ink-400 min-w-24 mx-1 text-center">
-      <TeacherHTML html={answer} />
-    </span>
-  )
 }
 
 export default function AuthorPage() {
   const { state, dispatch } = useApp()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [showAnswers, setShowAnswers] = useState(false)
 
   const data = state.worksheetData.authorData
 
   async function generate() {
-    if (!state.aiConfig.apiKey) { setError('請先在「篇章設定」頁面設定 API Key'); return }
-    if (!state.textConfig.content) { setError('請先在「篇章設定」頁面輸入篇章內容'); return }
+    if (!state.aiConfig.apiKey) { setError('請先設定 API Key'); return }
+    if (!state.textConfig.content) { setError('請先輸入篇章內容'); return }
     setLoading(true); setError(null)
-    dispatch({ type: 'SET_GENERATING', page: 'author' })
     try {
       const prompt = buildAuthorPrompt(state.textConfig)
-      const result = await callAI({ ...state.aiConfig, systemPrompt: SYSTEM_PROMPT, userPrompt: prompt, maxTokens: 4000 })
-      const clean = result.replace(/```json|```/g, '').trim()
-      const parsed = JSON.parse(clean)
+      const result = await callAI({ ...state.aiConfig, systemPrompt: SYSTEM_PROMPT, userPrompt: prompt, maxTokens: 65536 })
+      const parsed = parseAIJson(result)
       dispatch({ type: 'SET_PAGE_DATA', page: 'authorData', data: parsed })
     } catch (e) {
       setError('生成失敗：' + e.message)
     } finally {
       setLoading(false)
-      dispatch({ type: 'SET_GENERATING', page: null })
     }
   }
 
@@ -53,12 +45,24 @@ export default function AuthorPage() {
           <User size={14} /> 頁面二 · Author & Context
         </div>
         <h1 className="text-3xl font-serif font-bold text-ink-900">知人論世</h1>
-        <p className="text-ink-500 mt-1">作者背景、寫作背景、批判視角</p>
+        <p className="text-ink-500 mt-1">作者生平、寫作背景、解題、代入情境</p>
         <div className="brush-divider" />
       </div>
 
-      <div className="flex items-center gap-3 mb-6 no-print">
+      <div className="flex items-center gap-3 mb-6 no-print flex-wrap">
         <GenerateButton onClick={generate} loading={loading} hasData={!!data} />
+        {data && (
+          <button
+            onClick={() => setShowAnswers(!showAnswers)}
+            className={`flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl border transition-all font-medium
+              ${showAnswers
+                ? 'bg-vermillion-600 text-white border-vermillion-600'
+                : 'bg-white text-vermillion-600 border-vermillion-200 hover:bg-vermillion-50'}`}
+          >
+            {showAnswers ? <EyeOff size={14} /> : <Eye size={14} />}
+            {showAnswers ? '隱藏答案' : '顯示教師版答案'}
+          </button>
+        )}
         {error && (
           <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
             <AlertTriangle size={14} /> {error}
@@ -71,17 +75,18 @@ export default function AuthorPage() {
       {!loading && data && (
         <>
           <DownloadBar pageId="author-worksheet" pageName="知人論世" />
-
           <div id="author-worksheet" className="bg-white rounded-2xl shadow-sm border border-ink-100 p-8 animate-fadeIn">
             <PaperHeader pageTitle="知人論世" />
 
-            {/* Author Profile */}
-            <section className="mb-8">
-              <h2 className="text-lg font-serif font-bold text-ink-800 mb-4 flex items-center gap-2">
-                <span className="w-6 h-6 bg-ink-900 text-white rounded text-xs flex items-center justify-center font-bold">甲</span>
-                作者人物檔案
-              </h2>
-              <table className="w-full border-collapse text-sm">
+            {/* ── 甲：作者生平 ── */}
+            <section className="mb-10">
+              <div className="flex items-center gap-2 mb-5 pb-2 border-b border-ink-100">
+                <span className="w-7 h-7 bg-ink-900 text-white rounded-lg text-sm flex items-center justify-center font-serif font-bold">甲</span>
+                <h2 className="text-lg font-serif font-bold text-ink-800">作者生平</h2>
+              </div>
+
+              {/* Profile table - always show full content */}
+              <table className="w-full border-collapse text-sm mb-6">
                 <tbody>
                   {[
                     ['姓名', data.authorProfile?.name],
@@ -89,169 +94,167 @@ export default function AuthorPage() {
                     ['身份', data.authorProfile?.identity],
                     ['文學風格', data.authorProfile?.style],
                     ['思想特色', data.authorProfile?.ideology],
-                  ].map(([label, val]) => val && (
+                  ].filter(([, v]) => v).map(([label, val]) => (
                     <tr key={label}>
-                      <td className="border border-ink-200 bg-ink-50 px-4 py-2 font-medium w-28">{label}</td>
-                      <td className="border border-ink-200 px-4 py-2">
-                        <TeacherHTML html={String(val)} />
-                      </td>
+                      <td className="border border-ink-200 bg-ink-50 px-4 py-2.5 font-medium w-28 text-ink-700">{label}</td>
+                      <td className="border border-ink-200 px-4 py-2.5"><HTML html={String(val)} /></td>
                     </tr>
                   ))}
-                  <tr>
-                    <td className="border border-ink-200 bg-ink-50 px-4 py-2 font-medium">代表作</td>
-                    <td className="border border-ink-200 px-4 py-2">
-                      <TeacherHTML html={(data.authorProfile?.majorWorks || []).join('、')} />
-                    </td>
-                  </tr>
+                  {data.authorProfile?.majorWorks?.length > 0 && (
+                    <tr>
+                      <td className="border border-ink-200 bg-ink-50 px-4 py-2.5 font-medium text-ink-700">代表作</td>
+                      <td className="border border-ink-200 px-4 py-2.5">{data.authorProfile.majorWorks.join('、')}</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
-            </section>
 
-            {/* Timeline */}
-            {data.timeline && data.timeline.length > 0 && (
-              <section className="mb-8">
-                <h2 className="text-lg font-serif font-bold text-ink-800 mb-4 flex items-center gap-2">
-                  <span className="w-6 h-6 bg-ink-900 text-white rounded text-xs flex items-center justify-center font-bold">乙</span>
-                  人生時間軸
-                </h2>
-                <div className="relative pl-6 border-l-2 border-gold-300 space-y-4">
+              {/* Timeline - always show full content */}
+              {data.timeline?.length > 0 && (
+                <div className="relative pl-6 border-l-2 border-gold-300 space-y-3">
                   {data.timeline.map((item, i) => (
                     <div key={i} className="relative">
                       <div className="absolute -left-[27px] w-4 h-4 bg-gold-400 rounded-full border-2 border-white" />
                       <div className="bg-ink-50 rounded-lg px-4 py-3">
-                        <div className="text-xs font-bold text-gold-600 mb-1"><TeacherHTML html={item.year} /></div>
-                        <div className="text-sm font-medium text-ink-800"><TeacherHTML html={item.event} /></div>
+                        <div className="text-xs font-bold text-gold-600 mb-1">{item.year}</div>
+                        <div className="text-sm font-medium text-ink-800 mb-1"><HTML html={item.event} /></div>
                         {item.significance && (
-                          <div className="text-xs text-ink-500 mt-1"><TeacherHTML html={item.significance} /></div>
+                          <div className="text-xs text-ink-500"><HTML html={item.significance} /></div>
                         )}
                       </div>
                     </div>
                   ))}
                 </div>
-                <div className="mt-4 p-3 bg-gold-50 rounded-lg border border-gold-200 text-sm">
-                  <span className="font-medium text-gold-700">試根據以上時間軸，概述作者一生的仕途起伏：</span>
-                  <div className="mt-2 border-b border-ink-300 h-6 w-full" />
-                  <div className="mt-2 border-b border-ink-300 h-6 w-full" />
-                </div>
-              </section>
-            )}
-
-            {/* Writing Context */}
-            <section className="mb-8">
-              <h2 className="text-lg font-serif font-bold text-ink-800 mb-4 flex items-center gap-2">
-                <span className="w-6 h-6 bg-ink-900 text-white rounded text-xs flex items-center justify-center font-bold">丙</span>
-                寫作背景
-              </h2>
-              <div className="bg-ink-50 rounded-lg p-4 text-sm leading-relaxed font-serif">
-                <TeacherHTML html={data.writingContext || ''} />
-              </div>
-              {data.expectedReader && (
-                <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200 text-sm">
-                  <span className="font-medium text-blue-700">預期讀者分析：</span>
-                  <TeacherHTML html={data.expectedReader} />
-                </div>
               )}
             </section>
 
-            {/* Causal Chain */}
-            {data.causalChain && (
-              <section className="mb-8">
-                <h2 className="text-lg font-serif font-bold text-ink-800 mb-4 flex items-center gap-2">
-                  <span className="w-6 h-6 bg-ink-900 text-white rounded text-xs flex items-center justify-center font-bold">丁</span>
-                  因果鏈分析
-                </h2>
-                <div className="flex items-stretch gap-2 text-sm">
-                  {[
-                    { label: '因（寫作動機）', val: data.causalChain.cause, color: 'bg-blue-50 border-blue-200' },
-                    { label: '→', val: null, arrow: true },
-                    { label: '果（情感表達）', val: data.causalChain.effect, color: 'bg-green-50 border-green-200' },
-                    { label: '→', val: null, arrow: true },
-                    { label: '用字/語氣', val: data.causalChain.language, color: 'bg-gold-50 border-gold-200' },
-                  ].map((item, i) => item.arrow ? (
-                    <div key={i} className="self-center text-ink-400 font-bold text-xl">→</div>
-                  ) : (
-                    <div key={i} className={`flex-1 rounded-lg p-3 border ${item.color}`}>
-                      <div className="text-xs font-bold text-ink-600 mb-1">{item.label}</div>
-                      <TeacherHTML html={item.val || ''} />
-                    </div>
-                  ))}
+            {/* ── 乙：寫作背景 ── */}
+            <section className="mb-10">
+              <div className="flex items-center gap-2 mb-5 pb-2 border-b border-ink-100">
+                <span className="w-7 h-7 bg-ink-900 text-white rounded-lg text-sm flex items-center justify-center font-serif font-bold">乙</span>
+                <h2 className="text-lg font-serif font-bold text-ink-800">寫作背景</h2>
+              </div>
+              <div className="space-y-4">
+                {data.writingContext && (
+                  <div className="bg-ink-50 rounded-xl p-4 text-sm leading-relaxed font-serif border border-ink-100">
+                    <HTML html={data.writingContext} />
+                  </div>
+                )}
+                {data.expectedReader && (
+                  <div className="bg-blue-50 rounded-xl p-4 text-sm leading-relaxed border border-blue-100">
+                    <div className="text-xs font-bold text-blue-600 mb-1">預期讀者分析</div>
+                    <HTML html={data.expectedReader} />
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* ── 丙：解題 ── */}
+            {data.titleAnalysis && (
+              <section className="mb-10">
+                <div className="flex items-center gap-2 mb-5 pb-2 border-b border-ink-100">
+                  <span className="w-7 h-7 bg-ink-900 text-white rounded-lg text-sm flex items-center justify-center font-serif font-bold">丙</span>
+                  <h2 className="text-lg font-serif font-bold text-ink-800">解題</h2>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div className="bg-ink-50 rounded-xl p-4 border border-ink-100">
+                    <div className="text-xs font-bold text-ink-500 mb-2">字面義</div>
+                    <div className="text-sm leading-relaxed"><HTML html={data.titleAnalysis.literal} /></div>
+                  </div>
+                  <div className="bg-gold-50 rounded-xl p-4 border border-gold-100">
+                    <div className="text-xs font-bold text-gold-600 mb-2">深層義</div>
+                    <div className="text-sm leading-relaxed"><HTML html={data.titleAnalysis.deep} /></div>
+                  </div>
+                </div>
+                {/* Student prediction */}
+                <div className="bg-white border-2 border-dashed border-ink-200 rounded-xl p-4">
+                  <p className="text-sm font-medium text-ink-700 mb-3">
+                    💭 {data.titleAnalysis.question || '根據篇名，你預測文章會討論什麼主題？'}
+                  </p>
+                  <div className="space-y-1">
+                    {[1,2,3].map(n => <div key={n} className="border-b border-ink-200 h-7" />)}
+                  </div>
                 </div>
               </section>
             )}
 
-            {/* Fill Blanks */}
-            {data.fillBlanks && data.fillBlanks.length > 0 && (
-              <section className="mb-8">
-                <h2 className="text-lg font-serif font-bold text-ink-800 mb-4 flex items-center gap-2">
-                  <span className="w-6 h-6 bg-ink-900 text-white rounded text-xs flex items-center justify-center font-bold">戊</span>
-                  知識鞏固填空
-                </h2>
-                <div className="space-y-3">
-                  {data.fillBlanks.map((item, i) => (
-                    <div key={i} className="text-sm">
-                      <span className="font-medium mr-2">{i + 1}.</span>
-                      <TeacherHTML html={item.question} />
-                      <FillBlank answer={item.answer} />
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Critical Questions */}
-            {data.criticalQuestions && data.criticalQuestions.length > 0 && (
-              <section className="mb-4">
-                <h2 className="text-lg font-serif font-bold text-ink-800 mb-4 flex items-center gap-2">
-                  <span className="w-6 h-6 bg-vermillion-600 text-white rounded text-xs flex items-center justify-center font-bold">己</span>
-                  明辨性思維
-                </h2>
-                <div className="space-y-4">
-                  {data.criticalQuestions.map((item, i) => (
-                    <div key={i} className="bg-ink-50 rounded-lg p-4">
-                      <p className="text-sm font-medium mb-3 text-ink-800">
-                        <span className="text-vermillion-600 font-bold mr-2">思考：</span>
-                        <TeacherHTML html={item.question} />
-                      </p>
-                      <div className="space-y-1">
-                        {[1,2,3].map(n => (
-                          <div key={n} className="border-b border-ink-200 h-7" />
-                        ))}
-                      </div>
-                      <div className="mt-3 text-sm">
-                        <span className="text-vermillion-600 font-bold text-xs">【教師參考答案】</span>
-                        <div className="mt-1"><TeacherHTML html={item.answer} /></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {/* Intertextuality */}
-            {data.intertextuality && data.intertextuality.length > 0 && (
+            {/* ── 丁：代入情境 ── */}
+            {data.scenario && (
               <section>
-                <h2 className="text-lg font-serif font-bold text-ink-800 mb-4 flex items-center gap-2">
-                  <span className="w-6 h-6 bg-ink-900 text-white rounded text-xs flex items-center justify-center font-bold">庚</span>
-                  互文比較
-                </h2>
-                <table className="w-full border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-ink-100">
-                      <th className="border border-ink-200 px-3 py-2 text-left">相關篇章</th>
-                      <th className="border border-ink-200 px-3 py-2 text-left">作者</th>
-                      <th className="border border-ink-200 px-3 py-2 text-left">關聯說明</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.intertextuality.map((item, i) => (
-                      <tr key={i}>
-                        <td className="border border-ink-200 px-3 py-2 font-serif">《<TeacherHTML html={item.title} />》</td>
-                        <td className="border border-ink-200 px-3 py-2"><TeacherHTML html={item.author} /></td>
-                        <td className="border border-ink-200 px-3 py-2"><TeacherHTML html={item.connection} /></td>
-                      </tr>
+                <div className="flex items-center gap-2 mb-5 pb-2 border-b border-ink-100">
+                  <span className="w-7 h-7 bg-gold-500 text-white rounded-lg text-sm flex items-center justify-center font-serif font-bold">丁</span>
+                  <h2 className="text-lg font-serif font-bold text-ink-800">代入情境</h2>
+                  <span className="text-xs text-ink-400 font-normal">讀文前先思考，讀文後再對比</span>
+                </div>
+
+                {/* Situation */}
+                <div className="bg-gradient-to-br from-gold-50 to-ink-50 rounded-2xl p-5 border border-gold-200 mb-5">
+                  <div className="text-xs font-bold text-gold-700 mb-3 uppercase tracking-wider">
+                    📖 {data.scenario.setup || '情境設定'}
+                  </div>
+                  <p className="text-sm leading-relaxed text-ink-800 font-serif">
+                    <HTML html={data.scenario.situation} />
+                  </p>
+                </div>
+
+                {/* Guiding questions - student answer area */}
+                <div className="space-y-5 mb-6">
+                  {(data.scenario.guidingQuestions || []).map((q, i) => (
+                    <div key={i}>
+                      <p className="text-sm font-medium text-ink-800 mb-2">
+                        <span className="inline-flex items-center justify-center w-5 h-5 bg-ink-900 text-white rounded text-xs font-bold mr-2">
+                          {i + 1}
+                        </span>
+                        <HTML html={q} />
+                      </p>
+                      <div className="ml-7 space-y-1">
+                        {[1,2,3].map(n => <div key={n} className="border-b border-ink-200 h-7" />)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* After reading */}
+                {data.scenario.afterReading && (
+                  <div className="border-2 border-dashed border-ink-200 rounded-xl p-4 mb-4">
+                    <div className="text-xs font-bold text-ink-500 mb-2 uppercase tracking-wider">
+                      📝 讀後對比（閱讀全文後回答）
+                    </div>
+                    <p className="text-sm text-ink-800 mb-3">
+                      <HTML html={data.scenario.afterReading} />
+                    </p>
+                    <div className="space-y-1">
+                      {[1,2,3,4].map(n => <div key={n} className="border-b border-ink-200 h-7" />)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Teacher answers for scenario - only shown when toggled */}
+                {showAnswers && (
+                  <div className="bg-vermillion-50 border border-vermillion-200 rounded-xl p-4 mt-4">
+                    <div className="text-xs font-bold text-vermillion-600 mb-3">【教師版：代入情境參考答案】</div>
+                    {(data.scenario.guidingQuestions || []).map((q, i) => (
+                      <div key={i} className="mb-3">
+                        <div className="text-xs font-medium text-ink-600 mb-1">問題 {i + 1}：</div>
+                        <div className="text-sm text-ink-700 pl-3 border-l-2 border-vermillion-300">
+                          <HTML html={q} />
+                        </div>
+                        <div className="text-sm mt-1 pl-3">
+                          <span className="text-vermillion-600 font-bold text-xs">參考方向：</span>
+                          <span className="text-ink-600 text-xs">（引導學生結合自身經歷，回應篇章主題，無固定答案）</span>
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
+                    {data.scenario.afterReading && (
+                      <div className="mt-3 pt-3 border-t border-vermillion-200">
+                        <div className="text-xs font-bold text-vermillion-600 mb-1">讀後對比參考：</div>
+                        <div className="text-sm text-ink-700">
+                          引導學生比較自己的做法與作者的做法，分析兩者的異同及原因，並評價哪種方式更有效，言之成理即可。
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </section>
             )}
           </div>

@@ -136,3 +136,39 @@ body {
   margin: 1.5rem 0;
   border-radius: 2px;
 }
+
+/* ── Print styles ── */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 1.5cm 2cm;
+  }
+
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  .no-print { display: none !important; }
+
+  /* Remove sidebar and nav */
+  aside { display: none !important; }
+  main { margin-left: 0 !important; width: 100% !important; }
+  .min-h-screen { min-height: unset !important; }
+
+  /* Worksheet container */
+  .bg-white.rounded-2xl {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+
+  /* Typography */
+  body { font-size: 11pt !important; background: white !important; }
+  h1 { font-size: 16pt !important; }
+  h2 { font-size: 13pt !important; }
+
+  /* Avoid breaking inside elements */
+  section { page-break-inside: avoid; }
+  table { page-break-inside: avoid; }
+  .border-2 { page-break-inside: avoid; }
+
+  /* Teacher answer colors preserved */
+  .teacher-answer { color: #dc2626 !important; font-weight: 700 !important; }
+}

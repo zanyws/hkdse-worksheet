@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { useApp } from '../../context/AppContext'
 import { testConnection } from '../../lib/api'
 import { callAI } from '../../lib/api'
+import { extractTextFromPDF, extractTextFromImage } from '../../lib/pdfReader'
+import { parseAIJson } from '../../lib/parseJSON'
 import { SYSTEM_PROMPT } from '../../lib/prompts'
 import {
   Settings, Key, Cpu, Link, Eye, EyeOff,
@@ -17,8 +19,6 @@ const PROVIDERS = [
   { value: 'openai',    label: 'OpenAI',        defaultModel: 'gpt-4o' },
   { value: 'anthropic', label: 'Anthropic',     defaultModel: 'claude-opus-4-6' },
 ]
-
-const GENRES = ['論說', '記敘', '描寫', '抒情', '混合']
 
 export default function SetupPage() {
   const { state, dispatch } = useApp()
@@ -69,28 +69,39 @@ export default function SetupPage() {
 
   async function processFile(file) {
     setUploadedFile(file)
+
     if (file.type === 'text/plain') {
       const text = await file.text()
       updateText('content', text)
       updateText('ocrSource', 'manual')
-    } else {
-      // Send to backend OCR
+      return
+    }
+
+    if (file.type === 'application/pdf') {
       updateText('ocrSource', 'pdf')
-      const formData = new FormData()
-      formData.append('file', file)
       try {
-        const res = await fetch(`${BACKEND_URL}/api/ocr`, {
-          method: 'POST',
-          body: formData,
-        })
-        const data = await res.json()
-        if (data.text) {
-          updateText('content', data.text)
-        } else if (data.error) {
-          alert('OCR 失敗：' + data.error + '\n請手動貼上原文。')
+        const text = await extractTextFromPDF(file)
+        if (text && text.length > 20) {
+          updateText('content', text)
+        } else {
+          alert('未能從PDF提取文字（可能是掃描版PDF）\n請手動貼上原文，或點擊「AI智能提取」讓AI協助識別。')
         }
       } catch (e) {
-        alert('無法連接後端 OCR 服務，請手動貼上原文。')
+        alert('PDF讀取失敗：' + e.message + '\n請手動貼上原文。')
+      }
+      return
+    }
+
+    // Image files: store as base64 for AI OCR via vision
+    if (file.type.startsWith('image/')) {
+      updateText('ocrSource', 'image')
+      try {
+        const base64 = await extractTextFromImage(file)
+        // Store base64 temporarily, use AI to extract text
+        updateText('_imageBase64', base64)
+        alert('圖片已上傳，請點擊「AI智能提取篇章信息」讓AI識別圖片內容。')
+      } catch (e) {
+        alert('圖片讀取失敗，請手動貼上原文。')
       }
     }
   }
@@ -106,24 +117,59 @@ export default function SetupPage() {
     }
     setExtracting(true)
     try {
-      const prompt = `請分析以下文章，提取篇章信息，輸出JSON格式：
+      const EXTRACT_SYSTEM = '你是一位中文科老師，請從文章中提取基本信息。只輸出純JSON，所有值均為純文字，絕對不可加任何HTML標籤或teacher-answer標籤。'
+
+      // Build messages - support image OCR if image was uploaded
+      let result
+      if (textConfig._imageBase64) {
+        // Use vision API for image OCR
+        const imagePrompt = `請識別這張圖片中的文字，提取篇章基本信息。
+
+【重要】只輸出以下JSON，所有值必須是純文字：
+{
+  "title": "篇章題目",
+  "author": "作者姓名",
+  "dynasty": "朝代或時代",
+  "content": "完整原文（保持原有分段）",
+  "analysis": "篇章主要內容摘要（3至5句）"
+}`
+        // For Gemini vision, include image in prompt
+        if (aiConfig.provider === 'gemini') {
+          const base64Data = textConfig._imageBase64.split(',')[1]
+          const mimeType = textConfig._imageBase64.split(';')[0].split(':')[1]
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${aiConfig.model}:generateContent?key=${aiConfig.apiKey}`
+          const body = {
+            contents: [{
+              parts: [
+                { inline_data: { mime_type: mimeType, data: base64Data } },
+                { text: imagePrompt }
+              ]
+            }],
+            generationConfig: { maxOutputTokens: 4000, temperature: 0.3 }
+          }
+          const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+          const data2 = await res.json()
+          result = data2.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        } else {
+          result = await callAI({ ...aiConfig, systemPrompt: EXTRACT_SYSTEM, userPrompt: imagePrompt })
+        }
+      } else {
+        const prompt = `請分析以下文章，提取篇章基本信息。
 
 文章內容：
 ${textConfig.content || '（請先貼上原文）'}
 
-輸出JSON（只輸出JSON，不要說明）：
+【重要】只輸出以下JSON，所有值必須是純文字，絕對不可加任何HTML標籤：
 {
-  "title": "篇章題目（如不確定填空字串）",
-  "author": "作者姓名",
-  "dynasty": "朝代或時代（如唐代、現代、當代等）",
-  "genre": "文體（論說/記敘/描寫/抒情/混合之一）",
-  "content": "完整原文（分段，保持原有分段）",
-  "analysis": "篇章主要內容摘要（3-5句）"
+  "title": "篇章題目（純文字，如：出師表）",
+  "author": "作者姓名（純文字，如：諸葛亮）",
+  "dynasty": "朝代或時代（純文字，如：三國、唐代、現代）",
+  "content": "完整原文（純文字，保持原有分段，不加任何標籤）",
+  "analysis": "篇章主要內容摘要（純文字，3至5句）"
 }`
-
-      const result = await callAI({ ...aiConfig, systemPrompt: SYSTEM_PROMPT, userPrompt: prompt })
-      const clean = result.replace(/```json|```/g, '').trim()
-      const data = JSON.parse(clean)
+        result = await callAI({ ...aiConfig, systemPrompt: EXTRACT_SYSTEM, userPrompt: prompt })
+      }
+      const data = parseAIJson(result)
       
       Object.entries(data).forEach(([k, v]) => {
         if (v) updateText(k, v)
@@ -291,17 +337,6 @@ ${textConfig.content || '（請先貼上原文）'}
                   placeholder="如：三國"
                   className="w-full px-3 py-2 rounded-lg border border-ink-200 text-sm focus:outline-none focus:border-gold-400"
                 />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-ink-500 mb-1.5">文體</label>
-                <select
-                  value={textConfig.genre}
-                  onChange={e => updateText('genre', e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-ink-200 text-sm focus:outline-none focus:border-gold-400"
-                >
-                  <option value="">選擇文體</option>
-                  {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
               </div>
             </div>
 

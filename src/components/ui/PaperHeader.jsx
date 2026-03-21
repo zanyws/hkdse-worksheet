@@ -1,9 +1,18 @@
 import React from 'react'
 import { useApp } from '../../context/AppContext'
 
+// Strip HTML tags for plain text display
+function stripHtml(str) {
+  if (!str) return ''
+  return str.replace(/<[^>]*>/g, '').trim()
+}
+
 export default function PaperHeader({ pageTitle }) {
   const { state } = useApp()
   const { title, author } = state.textConfig
+
+  const cleanTitle = stripHtml(title)
+  const cleanAuthor = stripHtml(author)
 
   return (
     <div className="paper-header">
@@ -11,9 +20,9 @@ export default function PaperHeader({ pageTitle }) {
       <div className="student-info font-sans">
         姓名：____________&nbsp;&nbsp;&nbsp;班別：_______（&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;）&nbsp;&nbsp;&nbsp;日期：____________
       </div>
-      {title && (
+      {cleanTitle && (
         <div className="mt-2 text-sm font-serif text-ink-600">
-          《{title}》{author && `— ${author}`}
+          《{cleanTitle}》{cleanAuthor && `— ${cleanAuthor}`}
           {pageTitle && <span className="ml-3 text-gold-600 font-bold">【{pageTitle}】</span>}
         </div>
       )}

@@ -2,7 +2,7 @@
  * Unified AI API caller
  * Supports Gemini, OpenAI, Anthropic, custom base URL
  */
-export async function callAI({ provider, model, apiKey, baseUrl, systemPrompt, userPrompt, maxTokens = 4000 }) {
+export async function callAI({ provider, model, apiKey, baseUrl, systemPrompt, userPrompt, maxTokens = 65536 }) {
   if (!apiKey) throw new Error('請先設定 API Key')
 
   if (provider === 'gemini') {
@@ -10,7 +10,7 @@ export async function callAI({ provider, model, apiKey, baseUrl, systemPrompt, u
     const url = `${base}/v1beta/models/${model}:generateContent?key=${apiKey}`
     const body = {
       contents: [{ parts: [{ text: systemPrompt ? `${systemPrompt}\n\n${userPrompt}` : userPrompt }] }],
-      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
+      generationConfig: { maxOutputTokens: maxTokens, temperature: 0.3 },
     }
     const res = await fetch(url, {
       method: 'POST',
