@@ -11,6 +11,7 @@ const PORT = process.env.PORT || 3001
 app.use(cors({
   origin: [
     'https://zanyws.github.io',
+    'https://zanywr.pages.dev',
     'http://localhost:5173',
     'http://localhost:4173',
   ]
